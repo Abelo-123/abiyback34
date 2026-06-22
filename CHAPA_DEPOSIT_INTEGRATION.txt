@@ -1,0 +1,1136 @@
+================================================================================
+              PAXYO - COMPLETE CHAPA DEPOSIT INTEGRATION DOCUMENTATION
+================================================================================
+Last Updated: March 11, 2026
+Version: 3.0
+
+This document covers every aspect of the Chapa payment deposit integration
+in the Paxyo SMM Panel application — frontend, backend, database, algorithms,
+error handling, and UX logic.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1.  OVERVIEW & ARCHITECTURE
+2.  FILES INVOLVED
+3.  DATABASE SCHEMA
+4.  FRONTEND — HTML (Deposit View UI)
+5.  FRONTEND — JAVASCRIPT (Chapa SDK Integration)
+6.  FRONTEND — JAVASCRIPT (Phone Validation Algorithm)
+7.  FRONTEND — JAVASCRIPT (Deposit Verification & Balance Update)
+8.  FRONTEND — JAVASCRIPT (Deposit History Loading)
+9.  FRONTEND — JAVASCRIPT (UX Guides & Animations)
+10. FRONTEND — CSS (Chapa-Specific Styles)
+11. BACKEND — chapa_init.php (Redirect Checkout URL Generator)
+12. BACKEND — deposit_handler.php (Deposit Processing & Balance Update)
+13. BACKEND — get_deposits.php (Deposit History API)
+14. BACKEND — setup_deposits_table.php (Database Migration)
+15. BACKEND — webhook_handler.php (Chapa Webhook Receiver)
+16. BACKEND — db.php (Database Utility Functions)
+17. BACKEND — utils_bot.php (Admin Notification)
+18. CHAPA SDK CONFIGURATION
+19. COMPLETE DEPOSIT FLOW (Step-by-Step)
+20. ERROR HANDLING STRATEGY
+21. SECURITY CONSIDERATIONS
+22. KNOWN ISSUES & WORKAROUNDS
+23. ENVIRONMENT DIFFERENCES (Dev vs Production)
+24. FUTURE IMPROVEMENTS
+
+
+================================================================================
+1. OVERVIEW & ARCHITECTURE
+================================================================================
+
+The Chapa deposit system allows users to add funds (ETB - Ethiopian Birr) to
+their Paxyo SMM panel account. It uses Chapa's INLINE CHECKOUT SDK embedded
+directly into the app UI (not redirect-based).
+
+HIGH-LEVEL FLOW:
+┌─────────────┐    ┌──────────────────┐    ┌──────────────────┐
+│  User enters │───>│ Chapa Inline SDK │───>│ Chapa Payment    │
+│  amount      │    │ renders in-app   │    │ Gateway processes│
+└─────────────┘    └──────────────────┘    └──────────────────┘
+                                                    │
+                                                    ▼
+┌─────────────┐    ┌──────────────────┐    ┌──────────────────┐
+│  Balance     │<───│ deposit_handler  │<───│ onSuccessful     │
+│  updated     │    │ .php (backend)   │    │ Payment callback │
+└─────────────┘    └──────────────────┘    └──────────────────┘
+
+TWO CHECKOUT METHODS EXIST:
+  1. INLINE CHECKOUT (Primary) — Used in smm.php via ChapaCheckout SDK
+     - Renders payment form directly inside the app
+     - Best UX, no page redirects
+     - Requires domain whitelisting on Chapa dashboard
+
+  2. REDIRECT CHECKOUT (Fallback) — Used in chapa_init.php & learn_deposit.php
+     - Generates a Chapa checkout URL
+     - Redirects user to Chapa's hosted payment page
+     - Works on any domain (no CORS issues)
+
+
+================================================================================
+2. FILES INVOLVED
+================================================================================
+
+FRONTEND FILES:
+  smm.php              — Main app file containing:
+                          • Deposit view HTML (lines ~566-629)
+                          • initDeposit() function (lines ~1568-1624)
+                          • startChapaPayment() function (lines ~1626-2029)
+                          • verifyDeposit() function (lines ~2043-2084)
+                          • resetDepositUI() function (lines ~2086-2110)
+                          • showDepositHistoryGuide() function (lines ~2112-2139)
+                          • loadDepositHistory() function (lines ~2348-2381)
+                          • checkDepositReturn() function (lines ~2032-2041)
+                          • switchTab() with deposit logic (lines ~2143-2175)
+                          • Chapa SDK script tag (line ~3730)
+
+  smm_styles.css        — CSS styles for:
+                          • Deposit amount input (#deposit-amount)
+                          • Chapa inline form container (#chapa-inline-form)
+                          • Chapa error message suppression
+                          • Guide highlight animation (.guide-highlight)
+                          • Balance display styling
+
+  learn_deposit.php     — Standalone/legacy deposit page with:
+                          • Alternative inline Chapa implementation
+                          • XHR-based deposit submission to Add-fund/submitDepositb.php
+                          • Separate payment flow (not the main one used in the app)
+
+BACKEND FILES:
+  chapa_init.php        — Generates Chapa redirect checkout URL (fallback method)
+  deposit_handler.php   — Processes deposits: validates, records, updates balance
+  get_deposits.php      — Returns user's recent deposit history (last 5)
+  setup_deposits_table.php — Creates the 'deposits' table if not exists
+  webhook_handler.php   — Receives webhooks (currently for order status, not deposits)
+  db.php                — Database connection and CRUD utility functions
+  utils_bot.php         — Admin notification helper (logs deposit events)
+
+EXTERNAL DEPENDENCY:
+  https://js.chapa.co/v1/inline.js — Chapa Inline Checkout JavaScript SDK
+
+
+================================================================================
+3. DATABASE SCHEMA
+================================================================================
+
+TABLE: deposits
+────────────────────────────────────────────────────────────
+Column         Type              Constraints
+────────────────────────────────────────────────────────────
+id             INT               AUTO_INCREMENT, PRIMARY KEY
+user_id        VARCHAR(50)       NOT NULL
+amount         DECIMAL(10, 2)    NOT NULL
+reference_id   VARCHAR(100)      NOT NULL (Chapa tx_ref)
+status         VARCHAR(20)       DEFAULT 'pending'
+created_at     TIMESTAMP         DEFAULT CURRENT_TIMESTAMP
+────────────────────────────────────────────────────────────
+
+TABLE: auth (relevant columns for deposits)
+────────────────────────────────────────────────────────────
+Column         Type              Purpose
+────────────────────────────────────────────────────────────
+tg_id          VARCHAR           User identifier (Telegram ID or Google ID)
+balance        DECIMAL           User's current balance in ETB
+first_name     VARCHAR           User's display name (for notifications)
+────────────────────────────────────────────────────────────
+
+SQL to create deposits table (from setup_deposits_table.php):
+
+  CREATE TABLE IF NOT EXISTS deposits (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(50) NOT NULL,
+      amount DECIMAL(10, 2) NOT NULL,
+      reference_id VARCHAR(100) NOT NULL,
+      status VARCHAR(20) DEFAULT 'pending',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+
+
+================================================================================
+4. FRONTEND — HTML (Deposit View UI)
+================================================================================
+
+Location: smm.php, lines ~566-629
+
+The deposit view is one of four tab views (order, history, deposit, refer).
+It is toggled visible/hidden via the bottom navigation bar.
+
+STRUCTURE:
+┌──────────────────────────────────────────┐
+│  deposit-view (tab-content, hidden)      │
+│  ┌────────────────────────────────────┐  │
+│  │  Balance Card                      │  │
+│  │  ┌──────────────────────────────┐  │  │
+│  │  │ "Current Balance"            │  │  │
+│  │  │  deposit-balance-display     │  │  │
+│  │  │  (shows 0.00 ETB)           │  │  │
+│  │  └──────────────────────────────┘  │  │
+│  │                                    │  │
+│  │  Amount Input Field                │  │
+│  │  ┌──────────────────────────────┐  │  │
+│  │  │ ETB [_____________] (input)  │  │  │
+│  │  │  id="deposit-amount"         │  │  │
+│  │  │  inputmode="decimal"         │  │  │
+│  │  │  pattern="[0-9]*"            │  │  │
+│  │  └──────────────────────────────┘  │  │
+│  │                                    │  │
+│  │  Preset Amount Chips (grid 4-col)  │  │
+│  │  [+10] [+100] [+1k] [+10k]        │  │
+│  │  (class="amount-chip")             │  │
+│  │                                    │  │
+│  │  ┌──────────────────────────────┐  │  │
+│  │  │ [Deposit] Button             │  │  │
+│  │  │  id="deposit-btn"            │  │  │
+│  │  └──────────────────────────────┘  │  │
+│  │                                    │  │
+│  │  Chapa Container (hidden)          │  │
+│  │  ┌──────────────────────────────┐  │  │
+│  │  │ id="chapa-container-wrapper" │  │  │
+│  │  │ ┌────────────────────────┐   │  │  │
+│  │  │ │ id="chapa-inline-form" │   │  │  │
+│  │  │ │ (Chapa SDK renders     │   │  │  │
+│  │  │ │  payment form here)    │   │  │  │
+│  │  │ └────────────────────────┘   │  │  │
+│  │  │ ┌────────────────────────┐   │  │  │
+│  │  │ │ id="chapa-error-       │   │  │  │
+│  │  │ │ container" (hidden)    │   │  │  │
+│  │  │ └────────────────────────┘   │  │  │
+│  │  └──────────────────────────────┘  │  │
+│  │                                    │  │
+│  │  🔒 "Secured by Chapa" label       │  │
+│  │                                    │  │
+│  └────────────────────────────────────┘  │
+│                                          │
+│  Recent Deposits Section                 │
+│  ┌────────────────────────────────────┐  │
+│  │ "Recent Deposits" heading          │  │
+│  │ id="recent-deposits-list"          │  │
+│  │ (populated by JS loadDepositHist)  │  │
+│  └────────────────────────────────────┘  │
+└──────────────────────────────────────────┘
+
+Bottom Navigation Tab:
+  <button class="nav-item" data-tab="deposit">
+    <!-- Wallet SVG icon -->
+    <span>Deposit</span>
+  </button>
+
+
+================================================================================
+5. FRONTEND — JAVASCRIPT (Chapa SDK Integration)
+================================================================================
+
+Location: smm.php, inside the SMM object literal
+
+─── initDeposit() ───
+Called during app initialization. Sets up:
+
+  1. AMOUNT CHIPS: Click handlers that ADD to current amount
+     - Each chip has data-amount attribute (10, 100, 1000, 10000)
+     - Clicking a chip adds its value to the input (accumulative)
+     - Resets Chapa wrapper if it's already open (so new amount is used)
+     - Visual feedback: briefly highlights the chip with accent color
+
+  2. DEPOSIT BUTTON: Click handler
+     - Validates minimum amount (>= 10 ETB)
+     - Shows error toast if amount < 10
+     - Calls this.startChapaPayment(amount)
+
+  3. AMOUNT INPUT CHANGE: If user modifies the amount while Chapa is open
+     - Hides the Chapa wrapper
+     - Shows the deposit button again
+     - Clears the Chapa inline form (forces re-initialization with new amount)
+
+
+─── startChapaPayment(amount) ───
+The core Chapa integration function. Steps:
+
+  1. SDK CHECK: Verifies ChapaCheckout class is available
+     - If not loaded yet, shows "Payment system loading..." toast
+     - Retries after 1 second (recursive call)
+
+  2. UI STATE: Hides deposit button, shows chapa-container-wrapper
+     - Resets 'user-has-submitted' class
+     - Hides error container
+     - Clears previous form content
+
+  3. PHONE VALIDATOR: Sets up after 1-second delay (waits for Chapa render)
+     - Finds phone input inside Chapa's rendered form
+     - Creates custom validation message element
+     - Validates Ethiopian phone numbers in real-time
+     (See Section 6 for full phone validation algorithm)
+
+  4. CHAPA SDK INITIALIZATION:
+     Configuration object passed to new ChapaCheckout():
+
+     {
+       publicKey: 'CHAPUBK-s9JQu74c7hAcdPPGxaAF6aT22Ih4HNtm',
+       amount: Math.round(amount * 100) / 100,    // Rounded to 2 decimals
+       currency: 'ETB',
+       tx_ref: 'paxyo-' + userId + '-' + Date.now(),  // Unique per transaction
+       title: 'Add Funds',
+       description: 'Deposit to Paxyo',
+       email: 'user-' + userId + '@paxyo.com',
+       first_name: userName || 'Paxyo',
+       last_name: 'User',
+       showFlag: true,
+       showPaymentMethodsNames: true,
+       callbackUrl: window.location.origin + '/webhook_handler.php',
+       onSuccessfulPayment: (result, refId) => { ... },
+       onPaymentFailure: (error) => { ... },
+       onClose: () => { ... }
+     }
+
+  5. CALLBACKS:
+
+     onSuccessfulPayment(result, refId):
+       - Logs success
+       - Sets paymentSubmitted = true
+       - Hides Chapa wrapper
+       - Calls this.verifyDeposit(amount, refId)
+       - refId fallback chain: refId || result?.tx_ref || 'ref-' + Date.now()
+
+     onPaymentFailure(error):
+       - SUPPRESSES phone/validation errors (false positives from SDK):
+         Keywords suppressed: phone, mobile, valid, number, format,
+         required, insert, enter
+       - HANDLES network errors (close wrapper, show "Try Again"):
+         Keywords: fetch, network, server, failed to fetch,
+         connection, timeout
+       - HANDLES regional errors:
+         Keywords: no service found, country, not supported, region
+       - SHOWS real failures:
+         Keywords: cancel, decline, failed, reject
+       - Unknown errors: logged but UI NOT disrupted
+
+     onClose():
+       - Hides loading
+       - After 300ms: shows deposit button, hides Chapa wrapper
+       - Resets 'user-has-submitted' class
+
+  6. CLICK CAPTURE: Listens for clicks on buttons inside chapa-inline-form
+     - Sets 'user-has-submitted' class on wrapper
+     - Helps differentiate input errors from actual payment errors
+
+  7. TRY/CATCH: Calls chapa.initialize()
+     - On error: hides wrapper, shows deposit button
+     - Special message for localhost: "Payment works only on production site"
+
+
+================================================================================
+6. FRONTEND — JAVASCRIPT (Phone Validation Algorithm)
+================================================================================
+
+Location: smm.php, inside startChapaPayment(), lines ~1652-1908
+
+PURPOSE: Validates Ethiopian mobile phone numbers in real-time as the user
+types into Chapa's phone input field. Prevents common mistakes and provides
+clear guidance.
+
+PAYMENT METHOD DETECTION:
+  getSelectedPaymentMethod() function scans Chapa's rendered DOM to detect
+  which payment method is active:
+    - 'mpesa'    → M-Pesa / Safaricom (prefix: 07)
+    - 'telebirr' → Telebirr / Ethio Telecom (prefix: 09)
+    - 'bypass'   → CBE, E-Pay, E-Birr, Banks (no prefix restriction)
+
+VALIDATION ALGORITHM — validatePhone(val, showMessages):
+
+  INPUT PROCESSING:
+    1. Remove all non-digit characters
+    2. Strip international prefix '251' if present
+    3. Detect and strip leading '0'
+    4. Store base value (without leading zero)
+
+  VALIDATION RULES:
+    ┌─────────────────────────────────────────────────────────┐
+    │ Step 1: PREFIX CHECK (skip for bypass methods)          │
+    │   - If Telebirr selected and number starts with 7:     │
+    │     ERROR: "This is an M-Pesa number"                   │
+    │   - If M-Pesa selected and number starts with 9:       │
+    │     ERROR: "This is a Telebirr number"                  │
+    │   - If neither 7 nor 9: ERROR: "Must start with 09/07" │
+    ├─────────────────────────────────────────────────────────┤
+    │ Step 2: LENGTH CHECK                                    │
+    │   - Less than 9 digits (base): HINT "Enter 9-10 digits"│
+    │   - Exactly 9 digits: Valid if correct prefix           │
+    │   - 10 digits starting with 0: Valid if correct prefix  │
+    │   - More than 10 digits: ERROR "Number too long"        │
+    └─────────────────────────────────────────────────────────┘
+
+  VALID FORMATS:
+    Telebirr: 9XXXXXXXX (9 digits) or 09XXXXXXXX (10 digits)
+    M-Pesa:   7XXXXXXXX (9 digits) or 07XXXXXXXX (10 digits)
+    Bypass:   Any 9-10 digit number
+
+  UI FEEDBACK:
+    - Success: Validation message hidden, Chapa Pay button ENABLED
+    - Error:   Red message shown, Chapa Pay button DISABLED
+    - Hint:    Message hidden (user still typing)
+
+  EVENT LISTENERS:
+    - input:  Real-time validation on each keystroke
+    - blur:   Final validation when focus leaves input
+    - focus:  Re-validate (payment method may have changed)
+    - click:  Re-validate on ANY click in Chapa form
+              (uses multiple timeouts: 10ms, 100ms, 300ms, 600ms
+               to catch Chapa's slow DOM updates during method switches)
+
+  BUTTON STATE MANAGEMENT:
+    updateButtonState(enabled) — Finds Chapa's Pay Now button and:
+      - Sets disabled property
+      - Changes opacity (1 or 0.5)
+      - Changes cursor (pointer or not-allowed)
+
+
+================================================================================
+7. FRONTEND — JAVASCRIPT (Deposit Verification & Balance Update)
+================================================================================
+
+Location: smm.php, verifyDeposit() function, lines ~2043-2084
+
+─── verifyDeposit(amount, refId) ───
+
+Called after Chapa's onSuccessfulPayment callback fires.
+
+ALGORITHM:
+  1. Send POST to deposit_handler.php:
+     Body: { amount: <number>, reference_id: <string> }
+
+  2. Parse JSON response
+
+  3. IF data.status === 'success':
+     a. Show success toast: "Deposit successful! Balance updated."
+     b. Update balance locally: this.updateBalance(newBalance)
+     c. Reset amount input to empty
+     d. Update deposit balance display text
+     e. Keep deposit button visible (user can deposit again)
+     f. Hide Chapa wrapper
+     g. Reload deposit history: this.loadDepositHistory()
+     h. Show one-time guide: this.showDepositHistoryGuide()
+
+  4. IF error:
+     - Show error toast with message
+
+  5. FINALLY:
+     - Always hide loading indicator
+
+
+─── updateBalance(newBalance) ───
+
+Location: smm.php, lines ~1545-1554
+
+  1. Check if balance actually changed (this.userBalance !== newBalance)
+  2. Update internal state: this.userBalance = newBalance
+  3. Update DOM element #user-balance with formatted ETB value
+  4. Add 'pulse' CSS class for animation
+  5. Remove 'pulse' class after 2 seconds
+
+
+─── resetDepositUI() ───
+
+Location: smm.php, lines ~2086-2110
+
+Resets all deposit-related UI elements to their initial state:
+  - Hides chapa-container-wrapper
+  - Removes 'user-has-submitted' class
+  - Clears chapa-inline-form innerHTML
+  - Hides and clears error container
+  - Shows deposit button with original HTML content
+
+
+─── checkDepositReturn() ───
+
+Location: smm.php, lines ~2032-2041
+
+Called on page load. Checks URL parameters for ?deposit_complete=1
+(set when returning from Chapa redirect checkout).
+  - Cleans URL (removes query params)
+  - Shows "Checking payment status..." toast
+  - Switches to deposit tab
+
+
+================================================================================
+8. FRONTEND — JAVASCRIPT (Deposit History Loading)
+================================================================================
+
+Location: smm.php, loadDepositHistory() function, lines ~2348-2381
+
+─── async loadDepositHistory() ───
+
+  1. Get #recent-deposits-list element, return if not found
+
+  2. Fetch from get_deposits.php (GET request)
+
+  3. Parse JSON response (array of deposit objects)
+
+  4. IF empty array:
+     - Show "No recent deposits" message
+
+  5. IF has data:
+     - Map each deposit to an HTML card:
+       ┌────────────────────────────────────────┐
+       │ [+] +{amount} ETB                      │
+       │     #{reference_id}       [completed]   │
+       │     {created_at date}                   │
+       └────────────────────────────────────────┘
+
+     Each card contains:
+       - Green circle icon with + symbol
+       - Amount in bold white (e.g., "+150.00 ETB")
+       - Reference ID in monospace font
+       - Date in short format (e.g., "Mar 11, 12:30 PM")
+       - Status badge (green, capitalized)
+
+  6. ON ERROR:
+     - Show "Failed to load history" message
+
+WHEN CALLED:
+  - On switchTab('deposit') — every time user visits deposit tab
+  - After successful deposit in verifyDeposit()
+
+
+================================================================================
+9. FRONTEND — JAVASCRIPT (UX Guides & Animations)
+================================================================================
+
+Location: smm.php, showDepositHistoryGuide() function, lines ~2112-2139
+
+─── showDepositHistoryGuide() ───
+
+One-time visual guide shown after a user's FIRST successful deposit.
+
+ALGORITHM:
+  1. Check localStorage key: 'deposit_history_guide_shown'
+     - If already set → return (don't show again)
+
+  2. After 800ms delay:
+     a. Scroll to #recent-deposits-list with smooth animation
+     b. Add CSS class 'guide-highlight' (green pulsing border)
+     c. Show toast: "Check your deposit history below! 👇"
+     d. After 4 seconds: remove 'guide-highlight' class
+     e. Set localStorage key to 'true' (never show again)
+
+RELATED: showOrderHistoryGuide() — Similar guide for first order placement
+  - Highlights History tab in bottom nav
+  - localStorage key: 'order_history_guide_shown'
+
+CSS Animation (guide-highlight):
+  @keyframes guide-glow {
+    0%, 100% {
+      border-color: var(--accent-success);
+      box-shadow: 0 0 0 0 rgba(0, 210, 106, 0.4);
+    }
+    50% {
+      border-color: var(--accent-success);
+      box-shadow: 0 0 20px 5px rgba(0, 210, 106, 0.6);
+    }
+  }
+  .guide-highlight {
+    animation: guide-glow 2s ease-in-out infinite;
+    border: 2px solid var(--accent-success) !important;
+    border-radius: var(--radius-md);
+  }
+
+
+================================================================================
+10. FRONTEND — CSS (Chapa-Specific Styles)
+================================================================================
+
+Location: smm_styles.css
+
+─── Deposit Amount Input ───
+  #deposit-amount {
+    background-color: var(--bg-input) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color);
+  }
+  #deposit-amount::placeholder {
+    color: var(--text-muted) !important;
+  }
+
+─── Chapa Container ───
+  #chapa-inline-form {
+    background: transparent !important;
+    height: auto;
+  }
+
+─── Chapa Error Suppression ───
+  /* ALWAYS hide Chapa's inline error messages - they fire incorrectly */
+  #chapa-inline-form .chapa-error,
+  #chapa-inline-form [class*="error"],
+  #chapa-inline-form [class*="Error"],
+  #chapa-inline-form [style*="color: red"],
+  #chapa-inline-form [style*="color: rgb(255, 0, 0)"],
+  #chapa-inline-form .error-message,
+  #chapa-inline-form .validation-error,
+  #chapa-inline-form span[style*="red"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  PURPOSE: Chapa SDK fires incorrect validation error messages even when
+  inputs are valid and payment is processing. These CSS rules hide ALL
+  native Chapa error elements. Custom validation is handled by JavaScript.
+
+─── Chapa Button Styling ───
+  #chapa-inline-form button {
+    border-radius: 8px !important;
+  }
+
+─── Balance Pulse Animation ───
+  .pulse {
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+
+
+================================================================================
+11. BACKEND — chapa_init.php (Redirect Checkout URL Generator)
+================================================================================
+
+Location: /paxyo/chapa_init.php (50 lines)
+Purpose: FALLBACK method — generates a Chapa redirect checkout URL
+
+REQUEST: POST with JSON body
+  { "amount": <number>, "user_id": <string>, "user_name": <string> }
+
+ALGORITHM:
+  1. Set CORS headers (Access-Control-Allow-Origin: *)
+  2. Parse JSON input from request body
+  3. Validate amount > 0
+  4. Generate unique tx_ref: 'paxyo-' + user_id + '-' + timestamp
+  5. Build Chapa checkout URL with query parameters:
+
+     Base URL: https://checkout.chapa.co/
+     Parameters:
+       amount       = <user amount>
+       currency     = 'ETB'
+       email        = user-{user_id}@telegram.com
+       first_name   = <user_name>
+       last_name    = 'User'
+       tx_ref       = <generated tx_ref>
+       callback_url = http://localhost/paxyo/webhook_handler.php
+       return_url   = http://localhost:5178/miniapp-one/?deposit_complete=1
+                      &ref=<tx_ref>&amount=<amount>
+       customization[title]       = 'Paxyo SMM Deposit'
+       customization[description] = 'Add funds to your SMM panel account'
+       public_key   = CHAPUBK-s9JQu74c7hAcdPPGxaAF6aT22Ih4HNtm
+
+  6. Return JSON: { success: true, checkout_url: <url>, tx_ref: <ref> }
+
+RESPONSE:
+  Success: { "success": true, "checkout_url": "https://...", "tx_ref": "paxyo-..." }
+  Error:   { "error": "Invalid amount" }
+
+NOTE: This file uses LOCALHOST URLs and is primarily for development/fallback.
+For production, URLs should be updated to the live domain.
+
+
+================================================================================
+12. BACKEND — deposit_handler.php (Deposit Processing & Balance Update)
+================================================================================
+
+Location: /paxyo/deposit_handler.php (81 lines)
+Purpose: PRIMARY deposit processor — records deposit and updates user balance
+
+REQUEST: POST with JSON body
+  { "amount": <number>, "reference_id": <string> }
+
+ALGORITHM:
+  1. Include db.php and utils_bot.php
+  2. Start session (with SameSite=None, Secure=true)
+  3. Identify user:
+     Priority: $_SESSION['tg_id'] → $_COOKIE['id'] → fallback to 111 (dev only)
+  4. Validate: amount > 0 AND reference_id not empty
+  5. DUPLICATE CHECK: Query deposits table for existing reference_id
+     - If exists → return error: "Transaction already processed"
+  6. INSERT deposit record:
+     { user_id, amount, reference_id, status: 'completed' }
+  7. UPDATE user balance:
+     SQL: UPDATE auth SET balance = balance + {amount} WHERE tg_id = '{user_id}'
+  8. GET new balance from database
+  9. Return success response with new balance
+
+  10. NOTIFY admin via notify_bot_admin():
+      Data: { type: 'deposit', uid: user_id, uuid: first_name, amount: amount }
+
+RESPONSE:
+  Success: { "status": "success", "new_balance": <number>, "message": "Deposit successful" }
+  Errors:
+    { "status": "error", "message": "User not logged in" }
+    { "status": "error", "message": "Invalid amount or reference ID" }
+    { "status": "error", "message": "Transaction already processed" }
+    { "status": "error", "message": "Database error updating balance" }
+
+SECURITY NOTE:
+  - Contains a TODO for Chapa API verification using Secret Key
+  - Currently trusts the frontend callback (should be verified server-side)
+  - Duplicate check prevents double-counting via reference_id uniqueness
+
+
+================================================================================
+13. BACKEND — get_deposits.php (Deposit History API)
+================================================================================
+
+Location: /paxyo/get_deposits.php (38 lines)
+Purpose: Returns user's recent deposit history
+
+REQUEST: GET (no parameters needed, uses session/cookie for user ID)
+
+ALGORITHM:
+  1. Enable gzip compression (ob_gzhandler)
+  2. Set headers: Content-Type: application/json, Cache-Control: no-store
+  3. Start session, get user_id, immediately release session lock
+  4. Query: SELECT id, amount, reference_id, status, created_at
+           FROM deposits
+           WHERE user_id = '{user_id}'
+           ORDER BY created_at DESC
+           LIMIT 5
+  5. Return JSON array of deposit objects
+
+RESPONSE:
+  Success: [
+    {
+      "id": 1,
+      "amount": "150.00",
+      "reference_id": "paxyo-111-1709123456",
+      "status": "completed",
+      "created_at": "2026-03-11 12:00:00"
+    },
+    ...
+  ]
+  Empty: []
+
+OPTIMIZATION:
+  - Gzip compression enabled
+  - Session lock released immediately after reading user_id
+  - Only selects necessary columns (not SELECT *)
+  - Limited to 5 most recent deposits
+
+
+================================================================================
+14. BACKEND — setup_deposits_table.php (Database Migration)
+================================================================================
+
+Location: /paxyo/setup_deposits_table.php (22 lines)
+Purpose: One-time setup script to create the deposits table
+
+Run this file once (via browser or CLI) to create the table:
+  http://yourdomain.com/paxyo/setup_deposits_table.php
+
+Creates the deposits table with:
+  - id: auto-incrementing primary key
+  - user_id: VARCHAR(50), NOT NULL
+  - amount: DECIMAL(10,2), NOT NULL
+  - reference_id: VARCHAR(100), NOT NULL
+  - status: VARCHAR(20), DEFAULT 'pending'
+  - created_at: TIMESTAMP, DEFAULT CURRENT_TIMESTAMP
+
+
+================================================================================
+15. BACKEND — webhook_handler.php (Chapa Webhook Receiver)
+================================================================================
+
+Location: /paxyo/webhook_handler.php (121 lines)
+Purpose: Receives webhooks from external APIs (currently configured for
+         GodOfPanel order status updates, NOT Chapa deposit webhooks)
+
+NOTE: While this file is referenced as the callbackUrl in Chapa configuration,
+it is currently designed to handle ORDER status webhooks from the SMM API
+provider (GodOfPanel), not Chapa deposit confirmations.
+
+For Chapa deposits, the verification happens client-side via the
+onSuccessfulPayment callback, which then calls deposit_handler.php.
+
+EXISTING WEBHOOK FLOW (for orders, not deposits):
+  1. Receive JSON webhook data
+  2. Extract order_id and status
+  3. Find order in local database
+  4. Update order status
+  5. Handle refunds (cancelled = full, partial = proportional)
+  6. Notify WebSocket clients
+  7. Return success response
+
+
+================================================================================
+16. BACKEND — db.php (Database Utility Functions)
+================================================================================
+
+Location: /paxyo/db.php (164 lines)
+Purpose: Database connection and CRUD utility functions used by deposit system
+
+CONNECTION:
+  Host: localhost
+  User: root
+  Pass: (empty)
+  Database: paxyocom_paxyoV3
+
+FUNCTIONS USED BY DEPOSIT SYSTEM:
+
+  db_escape($str)
+    - Escapes strings for SQL queries using mysqli_real_escape_string
+
+  db('select', 'deposits', 'reference_id', $reference_id)
+    → Used in deposit_handler.php for duplicate check
+    → Returns full row if found, null if not
+
+  db('insert', 'deposits', $data)
+    → Inserts deposit record
+    → Returns insert ID or true on success
+
+  db('select', 'auth', 'tg_id', $user_id, 'balance')
+    → Gets user's current balance after update
+    → Returns single value (balance)
+
+  db('select', 'auth', 'tg_id', $user_id, 'first_name')
+    → Gets user's name for notifications
+
+  db_query($sql)
+    → Used in get_deposits.php for custom SELECT query
+    → Returns array of associative arrays
+
+  db_escape($value)
+    → Used for sanitizing user_id before SQL query
+
+
+================================================================================
+17. BACKEND — utils_bot.php (Admin Notification)
+================================================================================
+
+Location: /paxyo/utils_bot.php (23 lines)
+Purpose: Logs deposit notifications for admin review
+
+FUNCTION: notify_bot_admin($data)
+
+Currently logs to file: /paxyo/bot_notifications.log
+Format: [timestamp] Check: {JSON data}
+
+DEPOSIT NOTIFICATION DATA:
+  {
+    "type": "deposit",
+    "uid": "user_telegram_id",
+    "uuid": "User First Name",
+    "amount": 150.00
+  }
+
+FUTURE: Will be replaced with Telegram Bot API call to notify admin chat.
+
+
+================================================================================
+18. CHAPA SDK CONFIGURATION
+================================================================================
+
+PUBLIC KEY:
+  CHAPUBK-s9JQu74c7hAcdPPGxaAF6aT22Ih4HNtm
+
+SDK SCRIPT:
+  <script src="https://js.chapa.co/v1/inline.js"></script>
+  Loaded at the bottom of smm.php (line 3730)
+
+INLINE CHECKOUT OPTIONS (used in startChapaPayment):
+  ┌────────────────────────────────────────────────────────┐
+  │ Option                │ Value                          │
+  ├───────────────────────┼────────────────────────────────┤
+  │ publicKey             │ CHAPUBK-s9JQu74c7hAcdPPGx...  │
+  │ amount                │ User-entered, rounded to 2dp   │
+  │ currency              │ 'ETB'                          │
+  │ tx_ref                │ 'paxyo-{userId}-{timestamp}'   │
+  │ title                 │ 'Add Funds'                    │
+  │ description           │ 'Deposit to Paxyo'             │
+  │ email                 │ 'user-{userId}@paxyo.com'      │
+  │ first_name            │ userName or 'Paxyo'            │
+  │ last_name             │ 'User'                         │
+  │ showFlag              │ true                           │
+  │ showPaymentMethodsNames│ true                          │
+  │ callbackUrl           │ origin + '/webhook_handler.php'│
+  └────────────────────────────────────────────────────────┘
+
+SUPPORTED PAYMENT METHODS (auto-detected by Chapa SDK):
+  - Telebirr (Ethio Telecom) — prefix 09
+  - M-Pesa (Safaricom Kenya in Ethiopia) — prefix 07
+  - CBE Birr (Commercial Bank of Ethiopia)
+  - Other mobile banking options
+
+
+================================================================================
+19. COMPLETE DEPOSIT FLOW (Step-by-Step)
+================================================================================
+
+STEP 1: USER NAVIGATES TO DEPOSIT TAB
+  → Bottom nav "Deposit" button clicked
+  → switchTab('deposit') called
+  → deposit-view becomes visible
+  → Balance display updated with current balance
+  → loadDepositHistory() called to show recent deposits
+
+STEP 2: USER ENTERS AMOUNT
+  → Type in deposit-amount input field
+  → OR click preset chips (+10, +100, +1k, +10k) to accumulate
+  → If Chapa wrapper was open, it gets reset (hidden)
+
+STEP 3: USER CLICKS "DEPOSIT" BUTTON
+  → Validates amount >= 10 ETB
+  → If invalid: shows error toast "Minimum deposit is 10 ETB"
+  → If valid: calls startChapaPayment(amount)
+
+STEP 4: CHAPA SDK INITIALIZATION
+  → Checks if ChapaCheckout class is loaded
+  → If not: waits 1 second and retries
+  → Shows loading indicator
+  → Hides deposit button, shows Chapa container
+  → Creates new ChapaCheckout instance with configuration
+  → Calls chapa.initialize() to render the payment form
+  → Hides loading indicator
+
+STEP 5: PHONE VALIDATION SETUP (after 1 second)
+  → Finds Chapa's phone input in the rendered form
+  → Creates custom validation message element
+  → Attaches input/blur/focus/click event listeners
+  → Initial validation triggered after 1.5 seconds
+
+STEP 6: USER ENTERS PHONE & SELECTS PAYMENT METHOD
+  → Real-time phone validation as user types
+  → Payment method auto-detected from Chapa UI
+  → Validation messages shown/hidden based on input
+  → Pay button enabled/disabled based on validation
+
+STEP 7: USER CLICKS "PAY NOW" (Chapa's button)
+  → 'user-has-submitted' class added to wrapper
+  → Chapa SDK processes the payment
+  → User completes payment on their phone (USSD/STK push)
+
+STEP 8A: PAYMENT SUCCESS
+  → onSuccessfulPayment callback fires
+  → Receives result object and refId
+  → Hides Chapa wrapper
+  → Calls verifyDeposit(amount, refId)
+
+STEP 8B: PAYMENT FAILURE
+  → onPaymentFailure callback fires
+  → Error categorized:
+    - Validation errors → suppressed (SDK false positives)
+    - Network errors → show "Try Again" button
+    - Regional errors → show service unavailable message
+    - Real failures → show actual error message
+    - Unknown errors → logged silently
+
+STEP 9: BACKEND VERIFICATION (deposit_handler.php)
+  → Receives POST: { amount, reference_id }
+  → Identifies user from session/cookie
+  → Checks for duplicate reference_id in deposits table
+  → Inserts deposit record (status: 'completed')
+  → Updates auth.balance += amount
+  → Gets new balance
+  → Notifies admin via log file
+  → Returns: { status: 'success', new_balance: X }
+
+STEP 10: FRONTEND UPDATES
+  → Success toast shown
+  → Balance display updated (with pulse animation)
+  → Amount input cleared
+  → Deposit button shown again (for repeat deposits)
+  → Deposit history reloaded
+  → One-time guide shown (scroll to history, highlight)
+
+STEP 11: USER CAN DEPOSIT AGAIN
+  → No redirect to other tabs
+  → Deposit button remains visible
+  → User can enter new amount and repeat process
+
+
+================================================================================
+20. ERROR HANDLING STRATEGY
+================================================================================
+
+FRONTEND ERROR CATEGORIES:
+
+  1. SDK NOT LOADED
+     → Toast: "Payment system loading... please wait"
+     → Auto-retry after 1 second
+
+  2. CHAPA VALIDATION ERRORS (suppressed)
+     → Keywords: phone, mobile, valid, number, format, required, insert, enter
+     → Action: Silently ignored (console.log only)
+     → Reason: Chapa SDK fires these incorrectly during valid input
+
+  3. NETWORK ERRORS
+     → Keywords: fetch, network, server, failed to fetch, connection, timeout
+     → Action: Hide wrapper, show "Try Again" button
+     → Toast: "Connection failed. Please check your internet"
+
+  4. REGIONAL ERRORS
+     → Keywords: no service found, country, not supported, region
+     → Action: Hide wrapper, show "Try Again" button
+     → Toast: "Payment service unavailable in your region"
+
+  5. REAL PAYMENT FAILURES
+     → Keywords: cancel, decline, failed, reject
+     → Action: Hide wrapper, show "Try Again" button
+     → Toast: Actual error message or generic "Payment failed"
+
+  6. UNKNOWN ERRORS
+     → Action: Console log only, no UI disruption
+
+  7. CHAPA INITIALIZATION ERROR
+     → Localhost: "Payment works only on production site (paxyo.com)"
+     → Production: "Could not initialize payment. Please try again."
+
+  8. PHONE VALIDATION ERRORS (custom)
+     → Wrong prefix for selected method
+     → Number too short/long
+     → Visual: Red validation message above Pay button
+
+CSS ERROR SUPPRESSION:
+  → All native Chapa error elements are hidden via CSS !important rules
+  → Custom validation handled entirely by JavaScript
+
+BACKEND ERROR HANDLING:
+  → User not logged in → error response
+  → Invalid amount or reference → error response
+  → Duplicate transaction → error response (prevents double-counting)
+  → Database error → error response
+
+
+================================================================================
+21. SECURITY CONSIDERATIONS
+================================================================================
+
+CURRENT STATE:
+  ✅ Duplicate transaction prevention (reference_id check)
+  ✅ SQL injection prevention (db_escape)
+  ✅ Session-based user identification
+  ✅ CORS headers set
+  ✅ Amount validation (> 0 on backend, >= 10 on frontend)
+
+  ⚠️ TODO - SERVER-SIDE PAYMENT VERIFICATION:
+     deposit_handler.php has a TODO comment to verify the transaction
+     with Chapa's API using the Secret Key before crediting the balance.
+     Currently, the system trusts the frontend callback.
+
+     RECOMMENDED IMPLEMENTATION:
+     $chapa_secret = 'CHASECK-xxxxxxxxxxxxxxxx';
+     $ch = curl_init("https://api.chapa.co/v1/transaction/verify/{$reference_id}");
+     curl_setopt($ch, CURLOPT_HTTPHEADER, [
+         "Authorization: Bearer $chapa_secret"
+     ]);
+     // Verify status === 'success' before crediting
+
+  ⚠️ Hardcoded fallback user_id (111) for development
+     → Should be removed in production
+
+  ⚠️ Public key is hardcoded in JavaScript (visible to client)
+     → This is expected/normal for public keys
+     → Secret key must NEVER be in frontend code
+
+  ⚠️ CORS Allow-Origin: * is permissive
+     → Should be restricted to specific domains in production
+
+
+================================================================================
+22. KNOWN ISSUES & WORKAROUNDS
+================================================================================
+
+1. CHAPA SDK FALSE POSITIVE ERRORS
+   Issue:   SDK fires onPaymentFailure with phone validation errors even when
+            the phone number is valid and payment is processing
+   Workaround: Frontend suppresses all validation-keyword errors in the
+               onPaymentFailure callback + CSS hides all native error elements
+
+2. CHAPA CORS ON LOCALHOST
+   Issue:   Chapa inline checkout requires domain whitelisting
+   Workaround: Show message "Payment works only on production site (paxyo.com)"
+               when running on localhost
+   Solution: Use redirect checkout (chapa_init.php) for development
+
+3. DELAYED CHAPA FORM RENDERING
+   Issue:   Chapa's form takes time to render, phone input not immediately available
+   Workaround: setTimeout of 1000ms before attempting to find phone input
+               Multiple staggered timeouts (10, 100, 300, 600ms) for click re-validation
+
+4. PAYMENT METHOD SWITCH RE-VALIDATION
+   Issue:   When user switches payment method, phone may become invalid for new method
+   Workaround: Click event listener on entire chapaInline form with multiple
+               staggered timeouts to catch DOM updates
+
+5. SESSION LOCK BLOCKING
+   Issue:   PHP sessions block concurrent requests (SSE streams, AJAX)
+   Workaround: session_write_close() called immediately after reading user_id
+               in get_deposits.php
+
+
+================================================================================
+23. ENVIRONMENT DIFFERENCES (Dev vs Production)
+================================================================================
+
+┌─────────────────────┬───────────────────────┬──────────────────────────┐
+│ Setting             │ Development           │ Production               │
+├─────────────────────┼───────────────────────┼──────────────────────────┤
+│ Chapa Inline        │ Blocked (CORS)        │ Works (domain whitelisted)│
+│ Fallback user_id    │ 111                   │ Should be removed        │
+│ DB Host             │ localhost              │ Production DB host       │
+│ DB Password         │ (empty)               │ Secure password          │
+│ callbackUrl         │ localhost/paxyo/...    │ paxyo.com/...            │
+│ return_url          │ localhost:5178/...     │ paxyo.com/...            │
+│ Admin notification  │ File log only          │ Telegram Bot API         │
+│ Chapa verification  │ Not implemented (TODO) │ Should verify via API    │
+│ CORS                │ Allow-Origin: *        │ Should be restricted     │
+└─────────────────────┴───────────────────────┴──────────────────────────┘
+
+
+================================================================================
+24. FUTURE IMPROVEMENTS
+================================================================================
+
+1. SERVER-SIDE PAYMENT VERIFICATION
+   → Implement Chapa API verification using Secret Key
+   → Verify transaction status before crediting balance
+   → Endpoint: GET https://api.chapa.co/v1/transaction/verify/{tx_ref}
+
+2. WEBHOOK-BASED DEPOSIT CONFIRMATION
+   → Create dedicated Chapa webhook handler
+   → Verify webhook signature
+   → Credit balance on webhook instead of frontend callback
+
+3. WITHDRAWAL SYSTEM
+   → Chapa Transfer API for payouts
+   → Admin approval workflow
+   → Withdrawal history tracking
+
+4. TRANSACTION LOGGING
+   → Comprehensive transaction log table
+   → Include all states: initiated, pending, completed, failed
+   → Admin dashboard for transaction monitoring
+
+5. RATE LIMITING
+   → Limit deposit attempts per user per time window
+   → Prevent abuse of the deposit endpoint
+
+6. MINIMUM/MAXIMUM DEPOSIT LIMITS
+   → Configurable via admin settings
+   → Currently only frontend minimum (10 ETB)
+
+7. RECEIPT GENERATION
+   → Generate PDF/image receipts for completed deposits
+   → Shareable via social media
+
+8. MULTI-CURRENCY SUPPORT
+   → Currently ETB only
+   → Could expand to USD, other currencies via Chapa
+
+9. ADMIN NOTIFICATION UPGRADE
+   → Replace file logging with Telegram Bot notifications
+   → Real-time admin alerts for large deposits
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

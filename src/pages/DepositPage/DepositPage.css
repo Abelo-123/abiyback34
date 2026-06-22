@@ -1,0 +1,525 @@
+/* ═══════════════════════════════════════════════════════════════
+   DEPOSIT PAGE — Chapa Payment Integration Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+.deposit-page-wrapper {
+    padding-bottom: 20px;
+}
+
+/* ─── Hero Balance Card ─────────────────────────────────────── */
+.deposit-hero {
+    position: relative;
+    overflow: hidden;
+}
+
+.deposit-hero__glow {
+    position: absolute;
+    top: -60%;
+    right: -30%;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    background: rgba(108, 92, 231, 0.15);
+    filter: blur(40px);
+    pointer-events: none;
+}
+
+/* ─── SDK Status Badge ──────────────────────────────────────── */
+.sdk-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(8px);
+}
+
+.sdk-badge__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    animation: sdk-pulse 2s infinite;
+}
+
+.sdk-badge--ready .sdk-badge__dot {
+    background: #00d68f;
+    box-shadow: 0 0 8px rgba(0, 214, 143, 0.5);
+}
+
+.sdk-badge--redirect .sdk-badge__dot {
+    background: #ffa502;
+    box-shadow: 0 0 8px rgba(255, 165, 2, 0.5);
+}
+
+.sdk-badge--loading .sdk-badge__dot {
+    background: #a0a0b0;
+    animation: sdk-pulse 1s infinite;
+}
+
+@keyframes sdk-pulse {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(0.8);
+    }
+}
+
+/* ─── Deposit Error ─────────────────────────────────────────── */
+.deposit-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: rgba(255, 71, 87, 0.1);
+    border: 1px solid rgba(255, 71, 87, 0.2);
+    border-radius: var(--radius-md, 10px);
+    color: #ff4757;
+    font-size: 13px;
+    margin-bottom: 12px;
+    animation: fadeInShake 0.4s ease;
+}
+
+@keyframes fadeInShake {
+    0% {
+        opacity: 0;
+        transform: translateX(-8px);
+    }
+    50% {
+        transform: translateX(4px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* ─── Submit Button ─────────────────────────────────────────── */
+.deposit-submit {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #6c5ce7, #a855f7);
+    border: none;
+    border-radius: var(--radius-md, 10px);
+    color: #fff;
+    font-size: var(--font-md, 15px);
+    font-weight: 700;
+    font-family: var(--font-family, inherit);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    overflow: hidden;
+}
+
+.deposit-submit::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.5s;
+}
+
+.deposit-submit:hover::before {
+    left: 100%;
+}
+
+.deposit-submit:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
+.deposit-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.deposit-submit--loading {
+    pointer-events: none;
+}
+
+/* ─── Secured Badge ─────────────────────────────────────────── */
+.deposit-secured {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 8px;
+    font-size: 11px;
+    color: var(--text-muted, #888);
+    opacity: 0.8;
+}
+
+.deposit-secured__lock {
+    font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHAPA INLINE SECTION — Form Container & Dark Theme Overrides
+   ═══════════════════════════════════════════════════════════════ */
+
+.chapa-section {
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.chapa-section__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.chapa-section__back {
+    padding: 6px 14px;
+    background: var(--bg-card, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+    border-radius: var(--radius-md, 10px);
+    color: var(--text-primary, #fff);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-family, inherit);
+    cursor: pointer;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.chapa-section__back:active {
+    transform: scale(0.95);
+}
+
+.chapa-section__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+}
+
+/* Guide Highlight Animation (pulsing glow on the Chapa container) */
+.guide-highlight {
+    animation: guideGlow 1s ease-in-out 3;
+    border-radius: 12px;
+}
+
+@keyframes guideGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
+    50% { box-shadow: 0 0 20px 4px rgba(234, 179, 8, 0.3); }
+}
+
+/* ─── Chapa Inline Container ────────────────────────────────── */
+.chapa-inline-container {
+    min-height: 400px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-card, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+    transition: all 0.3s ease;
+}
+
+/* Chapa iframe sizing */
+#chapa-inline-form iframe {
+    min-height: 400px;
+    border-radius: 12px;
+    border: none;
+}
+
+#chapa-inline-form {
+    height: auto;
+    width: 100%;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHAPA DARK THEME TEXT COLOR OVERRIDES
+   Ensures inputs are readable on dark backgrounds
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Inputs: black text on white background */
+#chapa-inline-form input,
+#chapa-inline-form input[type="tel"],
+#chapa-inline-form input[type="text"],
+#chapa-inline-form input[type="number"],
+#chapa-inline-form input[type="email"],
+#chapa-inline-form select,
+#chapa-inline-form textarea {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    background-color: #ffffff !important;
+    caret-color: #000000 !important;
+}
+
+#chapa-inline-form input::placeholder {
+    color: #9ca3af !important;
+    -webkit-text-fill-color: #9ca3af !important;
+}
+
+#chapa-inline-form input:focus,
+#chapa-inline-form input:active {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+}
+
+/* Labels, spans, text: white for dark theme */
+#chapa-inline-form label,
+#chapa-inline-form span,
+#chapa-inline-form p {
+    color: white;
+}
+
+/* Phone input wrapper: white text */
+#chapa-phone-input-wrapper {
+    color: white;
+}
+
+/* Phone input container: white background */
+#chapa-phone-input-container {
+    background: white;
+}
+
+/* Phone prefix text: black so it's visible on white bg */
+#chapa-container-wrapper #chapa-inline-form #chapa-phone-input-container .chapa-phone-input-wrapper .chapa-phone-prefix span {
+    color: black;
+}
+
+/* Chapa error container: tiny / hidden */
+#chapa-error-container {
+    color: black;
+    font-size: 0.4px;
+}
+
+/* Keep buttons readable: white text */
+#chapa-inline-form button {
+    color: #ffffff !important;
+    border-radius: 8px !important;
+}
+
+#chapa-inline-form button span,
+#chapa-inline-form button div {
+    color: inherit !important;
+}
+
+/* Our custom phone validation message keeps its own colors */
+#phone-validation-msg,
+#phone-validation-msg * {
+    -webkit-text-fill-color: inherit !important;
+    background-color: inherit !important;
+}
+
+/* Payment method info text */
+.payment-method-info {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted, #888);
+    margin-bottom: 16px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHAPA ERROR SUPPRESSION
+   Hides Chapa's built-in validation errors (fire incorrectly)
+   ═══════════════════════════════════════════════════════════════ */
+
+#chapa-inline-form .chapa-error,
+#chapa-inline-form [class*="error"],
+#chapa-inline-form [class*="Error"],
+#chapa-inline-form [style*="color: red"],
+#chapa-inline-form [style*="color: rgb(255, 0, 0)"],
+#chapa-inline-form .error-message,
+#chapa-inline-form .validation-error,
+#chapa-inline-form span[style*="red"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Chapa Error Container (our custom one) */
+.chapa-error-box {
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(255, 71, 87, 0.1);
+    border: 1px solid rgba(255, 71, 87, 0.2);
+    border-radius: 10px;
+    color: #ff4757;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    display: none;
+}
+
+.chapa-error-box.visible {
+    display: block;
+    animation: fadeInShake 0.4s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PROCESSING / VERIFYING STATE
+   ═══════════════════════════════════════════════════════════════ */
+
+.deposit-processing {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    animation: fadeIn 0.3s ease;
+}
+
+.deposit-processing__spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(108, 92, 231, 0.15);
+    border-top-color: #6c5ce7;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.deposit-processing__text {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary, #fff);
+    margin-bottom: 6px;
+}
+
+.deposit-processing__subtext {
+    font-size: 13px;
+    color: var(--text-muted, #888);
+    text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SUCCESS STATE
+   ═══════════════════════════════════════════════════════════════ */
+
+.deposit-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    animation: successBounce 0.5s ease;
+}
+
+@keyframes successBounce {
+    0% {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    60% {
+        transform: scale(1.05);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.deposit-success__icon {
+    font-size: 56px;
+    margin-bottom: 16px;
+    animation: checkBounce 0.6s ease 0.2s both;
+}
+
+@keyframes checkBounce {
+    0% {
+        transform: scale(0);
+    }
+    50% {
+        transform: scale(1.3);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.deposit-success__text {
+    font-size: 20px;
+    font-weight: 800;
+    color: #00d68f;
+    margin-bottom: 6px;
+}
+
+.deposit-success__subtext {
+    font-size: 13px;
+    color: var(--text-muted, #888);
+    margin-bottom: 24px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MANUAL FALLBACK UI
+   ═══════════════════════════════════════════════════════════════ */
+
+.deposit-fallback-help {
+    margin-top: 20px;
+    text-align: center;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md, 10px);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.deposit-fallback-help p {
+    font-size: 13px;
+    color: var(--text-muted, #888);
+    margin-bottom: 12px;
+}
+
+.deposit-fallback-btn {
+    padding: 10px 18px;
+    background: rgba(108, 92, 231, 0.1);
+    border: 1px solid rgba(108, 92, 231, 0.3);
+    border-radius: 8px;
+    color: #6c5ce7;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.deposit-fallback-btn:active {
+    background: rgba(108, 92, 231, 0.2);
+    transform: scale(0.98);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEPOSIT CARD (History)
+   ═══════════════════════════════════════════════════════════════ */
+
+.deposit-card__status--success {
+    color: var(--color-success, #00d68f);
+}

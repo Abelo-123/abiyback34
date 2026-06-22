@@ -1,0 +1,307 @@
+/* Habits Tracker - Identity vs Action Differentiator */
+
+.habits-container {
+  background: #111;
+  min-height: 100vh;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Header */
+.habits-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #181818;
+  border-bottom: 1px solid #282828;
+}
+
+.habits-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-btn {
+  background: #252525;
+  border: none;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.header-btn.active {
+  background: rgba(52, 152, 219, 0.2);
+  color: #3498db;
+}
+
+/* Days Header */
+.days-header {
+  display: grid;
+  grid-template-columns: 1fr repeat(5, 34px) 30px;
+  padding: 8px 12px;
+  background: #111;
+  border-bottom: 1px solid #222;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.day-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 9px;
+  color: #555;
+}
+
+.day-col.today {
+  color: #3498db;
+}
+
+.day-letter {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.day-num {
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+/* Add Section */
+.add-section {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #222;
+}
+
+.add-input {
+  flex: 1;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+}
+
+.add-btn {
+  background: #3498db;
+  border: none;
+  border-radius: 6px;
+  width: 36px;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Habit List */
+.habits-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.habit-row {
+  display: grid;
+  grid-template-columns: 1fr repeat(5, 34px) 30px;
+  align-items: center;
+  padding: 4px 12px;
+  border-bottom: 1px solid #1e1e1e;
+  min-height: 38px;
+}
+
+.habit-info {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.habit-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.habit-text {
+  font-size: 14px;
+  color: #eee;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 💍 CREATOR: Outlined Ring (Passive Identity) */
+.creator-ring {
+  width: 10px;
+  height: 10px;
+  border: 2.5px solid #444;
+  /* Fallback */
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+/* 🔳 CHECKER: Solid Grid Box (Active Event) */
+.cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  height: 26px;
+  width: 26px;
+  border-radius: 5px;
+  margin: auto;
+  border: 1.5px solid #222;
+  transition: all 0.1s;
+}
+
+.cell:hover {
+  border-color: #444;
+}
+
+.cell.done {
+  border: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.cell.done .mark {
+  color: #fff;
+  font-weight: 900;
+}
+
+.cell.disabled {
+  opacity: 0.1;
+  cursor: default;
+}
+
+.mark {
+  font-size: 12px;
+  color: #333;
+}
+
+/* Overlay & Modals */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 50;
+}
+
+.modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #1e1e1e;
+  border-radius: 12px;
+  width: 260px;
+  z-index: 100;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  border: 1px solid #333;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.members-list {
+  list-style: none;
+  padding: 8px 0;
+  margin: 0;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+}
+
+.member-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.member-name {
+  font-size: 13px;
+  color: #eee;
+}
+
+.you-badge {
+  color: #3498db;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.del-btn {
+  background: none;
+  border: none;
+  color: #222;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.del-btn:hover {
+  color: #e74c3c;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 40px;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #222;
+  border-top-color: #3498db;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
