@@ -8,39 +8,48 @@
   <meta name="description" content="Paxyo Admin — Management Dashboard" />
   <title>Paxyo Admin</title>
 
-  <!-- Google Fonts: Inter -->
+  <!-- Goofgle Fonts: Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
 
   <!-- Inline critical CSS -->
   <style>
-    html, body {
+    html,
+    body {
       margin: 0;
       padding: 0;
       background: #0a0a12;
       font-family: 'Inter', sans-serif;
       color: #e4e4e7;
     }
+
     #root {
       width: 100%;
       min-height: 100vh;
     }
+
     #root:empty {
       display: flex;
       align-items: center;
       justify-content: center;
     }
+
     #root:empty::after {
       content: '';
       width: 32px;
       height: 32px;
-      border: 3px solid rgba(99,102,241,0.2);
+      border: 3px solid rgba(99, 102, 241, 0.2);
       border-top-color: #6366f1;
       border-radius: 50%;
       animation: _spin .7s linear infinite;
     }
-    @keyframes _spin { to { transform: rotate(360deg); } }
+
+    @keyframes _spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
   </style>
 </head>
 
