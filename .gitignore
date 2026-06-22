@@ -30,3 +30,11 @@ dist-ssr
 .env.*.local
 
 todos.db
+
+# Server/Backend
+server/
+server.zip
+*.zip
+*.sql
+*.db
+*.db-journal
